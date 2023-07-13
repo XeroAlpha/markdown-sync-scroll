@@ -4,7 +4,7 @@
 > This plugin provides a patch to modify some private method of MarkdownView.
 > It may not worked when you update your Obsidian version.
 
-A simple plugin makes sync scrolling editing easier.
+A simple plugin makes sync scrolling editing easier. Inspired by [Synchronise the scroll position of two different files](https://forum.obsidian.md/t/synchronise-the-scroll-position-of-two-different-files/6569).
 
 # Usage
 
