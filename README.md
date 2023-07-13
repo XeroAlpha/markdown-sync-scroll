@@ -10,6 +10,8 @@ A simple plugin makes sync scrolling editing easier.
 
 Just use "Link with tab..." to link two Markdown views together, they will scroll synchronously.
 
+![](./asset/demo.mp4)
+
 # Known issues
 
 - Scroll offset will not be recalculated after a tab unlink and then link to a tab which is already linked with another tab.
