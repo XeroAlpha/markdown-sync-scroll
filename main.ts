@@ -1,75 +1,69 @@
-import { MarkdownView, Plugin, WorkspaceLeaf, OpenViewState } from 'obsidian';
-
-const MarkdownViewScrollOffset = Symbol('MarkdownViewScrollOffset');
-const MarkdownViewScrollGroup = Symbol('MarkdownViewScrollGroup');
+import { MarkdownView, Plugin } from 'obsidian';
 
 declare module 'obsidian' {
 	interface WorkspaceLeaf {
 		group: string | null;
-		workspace: Workspace;
 		working: boolean;
 	}
 
+    interface MarkdownViewEphemeralState {
+        scroll: number;
+    }
+
 	interface MarkdownView {
-		syncState(this: MarkdownView, sameType: boolean): Promise<boolean>;
-		getScrollOffsetForSync(this: MarkdownView, group: string): number;
-		[MarkdownViewScrollOffset]: number | undefined;
-		[MarkdownViewScrollGroup]: string | undefined;
+        receiveSyncState(this: MarkdownView, view: MarkdownView): void;
+        syncScroll(this: MarkdownView): void;
+        getEphemeralState(): MarkdownViewEphemeralState;
+        setEphemeralState(state: MarkdownViewEphemeralState): void;
 	}
 }
 
+const MarkdownViewSyncScroll = new WeakMap<MarkdownView, { offset: number, group: string | null }>();
+const MarkdownViewScrolling = new WeakMap<MarkdownView, boolean>();
+function getOrRefreshScrollSyncOffset(view: MarkdownView, group: string | null) {
+    const scroll = MarkdownViewSyncScroll.get(view);
+    if (!scroll || !group || scroll.group !== group) {
+        const currentScroll = view.currentMode.getScroll();
+        MarkdownViewSyncScroll.set(view, { offset: currentScroll, group });
+        return currentScroll;
+    }
+    return scroll.offset;
+}
+
 export default class MarkdownSyncScrollPlugin extends Plugin {
-	originalSyncState: MarkdownView['syncState'];
+	originalReceiveSyncState: MarkdownView['receiveSyncState'];
+    originalSyncScroll: MarkdownView['syncScroll'];
 
 	async onload() {
-		this.originalSyncState = MarkdownView.prototype.syncState;
-        MarkdownView.prototype.getScrollOffsetForSync = function(group) {
-            let scrollOffset = this[MarkdownViewScrollOffset];
-            if (group !== this[MarkdownViewScrollGroup]) {
-                scrollOffset = undefined;
-            }
-            if (scrollOffset === undefined) {
-                const currentScroll = this.currentMode.getScroll();
-                this[MarkdownViewScrollOffset] = currentScroll;
-                this[MarkdownViewScrollGroup] = group;
-				return currentScroll;
-            }
-            return scrollOffset;
-        }
-        MarkdownView.prototype.syncState = async function(sameType) {
-            const leaf = this.leaf as unknown as WorkspaceLeaf;
-            const group = leaf.group;
-            if (!group) return false;
-            // Build OpenViewState from current view state (replacing removed getSyncViewState method)
-            const syncViewState: OpenViewState = {
-                state: this.getState(),
-                eState: this.getEphemeralState()
-            };
-            const currentScroll = this.currentMode.getScroll();
-            const srcScrollOffset = this.getScrollOffsetForSync(group);
-            let success = true;
-            for (const groupLeaf of leaf.workspace.getGroupLeaves(group)) {
-                if (groupLeaf === leaf) continue;
-                const isSameType = groupLeaf.view.getViewType() === this.getViewType();
-                if (!sameType || isSameType) {
-                    if (groupLeaf.working) {
-                        success = false;
-                        continue;
-                    }
-                    const destView = groupLeaf.view;
-                    if (destView instanceof MarkdownView) {
-                        const destScrollOffset = destView.getScrollOffsetForSync(group);
-                        destView.currentMode.applyScroll(currentScroll - srcScrollOffset + destScrollOffset);
-                    } else {
-                        await groupLeaf.openFile(this.file, syncViewState);
-                    }
+		this.originalReceiveSyncState = MarkdownView.prototype.receiveSyncState;
+		this.originalSyncScroll = MarkdownView.prototype.syncScroll;
+        const originalReceiveSyncState = this.originalReceiveSyncState;
+        const originalSyncScroll = this.originalSyncScroll;
+        MarkdownView.prototype.receiveSyncState = function(sourceView) {
+            if (MarkdownViewScrolling.get(sourceView)) {
+                if (this.leaf.working) {
+                    return false;
                 }
+                const destScrollOffset = getOrRefreshScrollSyncOffset(this, this.leaf.group);
+                const srcScrollOffset = getOrRefreshScrollSyncOffset(sourceView, sourceView.leaf.group);
+                const eState = { ...sourceView.getEphemeralState() };
+                eState.scroll += destScrollOffset - srcScrollOffset;
+                this.setEphemeralState(eState);
+                return true;
+            } else {
+                return originalReceiveSyncState.call(this, sourceView);
             }
-            return success;
-        }
+        };
+        MarkdownView.prototype.syncScroll = function(...args) {
+            MarkdownViewScrolling.set(this, true);
+            const result = originalSyncScroll.call(this, args);
+            MarkdownViewScrolling.set(this, false);
+            return result;
+        };
 	}
 
 	onunload() {
-		MarkdownView.prototype.syncState = this.originalSyncState;
+		MarkdownView.prototype.receiveSyncState = this.originalReceiveSyncState;
+		MarkdownView.prototype.syncScroll = this.originalSyncScroll;
 	}
 }
