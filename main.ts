@@ -1,4 +1,4 @@
-import { MarkdownView, Plugin, WorkspaceLeaf } from 'obsidian';
+import { MarkdownView, Plugin, WorkspaceLeaf, OpenViewState } from 'obsidian';
 
 const MarkdownViewScrollOffset = Symbol('MarkdownViewScrollOffset');
 const MarkdownViewScrollGroup = Symbol('MarkdownViewScrollGroup');
@@ -13,7 +13,6 @@ declare module 'obsidian' {
 	interface MarkdownView {
 		syncState(this: MarkdownView, sameType: boolean): Promise<boolean>;
 		getScrollOffsetForSync(this: MarkdownView, group: string): number;
-		getSyncViewState(this: MarkdownView): OpenViewState;
 		[MarkdownViewScrollOffset]: number | undefined;
 		[MarkdownViewScrollGroup]: string | undefined;
 	}
@@ -41,7 +40,11 @@ export default class MarkdownSyncScrollPlugin extends Plugin {
             const leaf = this.leaf as unknown as WorkspaceLeaf;
             const group = leaf.group;
             if (!group) return false;
-            const syncViewState = this.getSyncViewState();
+            // Build OpenViewState from current view state (replacing removed getSyncViewState method)
+            const syncViewState: OpenViewState = {
+                state: this.getState(),
+                eState: this.getEphemeralState()
+            };
             const currentScroll = this.currentMode.getScroll();
             const srcScrollOffset = this.getScrollOffsetForSync(group);
             let success = true;
